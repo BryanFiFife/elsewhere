@@ -378,8 +378,8 @@
       ? L.latLngBounds([[state.origin.lat, state.origin.lon], ll])
       : L.latLngBounds([ll, ll]);
     map.flyToBounds(bounds, {
-      paddingTopLeft: [44, 96],
-      paddingBottomRight: [44, sheetHeight() + 28],
+      paddingTopLeft: [72, 148],
+      paddingBottomRight: [72, sheetHeight() + 62],
       maxZoom: 16,
       duration: 0.85
     });
@@ -427,9 +427,9 @@
     if (res.stats) {
       var s = res.stats;
       el.resStats.textContent =
-        nf(s.samples) + ' points \u00b7 ' + nf(s.cells) + ' squares \u00b7 ' +
-        s.expected.toFixed(2) + ' expected \u00b7 p ' + fmtP(res.cell.p) + ' \u00b7 ' +
-        s.ms + ' ms';
+        nf(s.samples) + '\u00a0points \u00b7 ' + nf(s.cells) + '\u00a0squares \u00b7 ' +
+        s.expected.toFixed(2) + '\u00a0expected \u00b7 p\u00a0' + fmtP(res.cell.p) + ' \u00b7 ' +
+        s.ms + '\u00a0ms';
     } else if (res.cell && isFinite(res.cell.z)) {
       el.resStats.textContent = '\u03c3 ' + res.cell.z.toFixed(2);
     } else {

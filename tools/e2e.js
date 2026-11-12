@@ -246,7 +246,7 @@ function hardenPage(page) {
     check('distance shown', /^\d/.test(r1.dist), r1.dist);
     check('bearing line shown', /bearing \d+/.test(r1.line), r1.line);
     check('coordinates shown', /\u00b0\s?[NS]\s+\d/.test(r1.coords), r1.coords);
-    check('sample stats shown', /\d{2},\d{3} points/.test(r1.stats), r1.stats);
+    check('sample stats shown', /\d{2},\d{3}[\s\u00a0]points/.test(r1.stats), JSON.stringify(r1.stats));
     check('target marker on map', r1.marker);
     check('origin-to-point line drawn', r1.lineDrawn);
     check('journal badge set to 1', r1.badge === '1', r1.badge);
