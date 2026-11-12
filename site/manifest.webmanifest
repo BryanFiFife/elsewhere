@@ -1,0 +1,17 @@
+{
+  "name": "ELSEWHERE — random points, real places",
+  "short_name": "Elsewhere",
+  "description": "Generate a random point near you and go and find it. Free, no account, no tracking, all computation in the browser.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#06070a",
+  "theme_color": "#06070a",
+  "categories": ["travel", "lifestyle", "navigation"],
+  "icons": [
+    { "src": "/assets/img/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/assets/img/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/assets/img/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
