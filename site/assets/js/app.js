@@ -7,11 +7,19 @@
   var EW = window.EW;
   var G = EW.geo;
 
-  var RADII = [250, 500, 1000, 3000, 8000, 20000];
-  var RADIUS_LABEL = ['250 m', '500 m', '1 km', '3 km', '8 km', '20 km'];
-  var ZOOM = [16, 15.5, 15, 13.5, 12.5, 11.5];
-  var LABEL = { attractor: 'Attractor', void: 'Void', random: 'Random', blind: 'Blind spot' };
-  var COLOR = { attractor: '#d8ff3e', void: '#8f74ff', random: '#c9c7c0', blind: '#ffb03a' };
+  var RADII = [250, 500, 1000, 3000, 8000];
+  var RADIUS_LABEL = ['250 m', '500 m', '1 km', '3 km', '8 km'];
+  var ZOOM = [16, 15.5, 15, 13, 12];
+  var LABEL = {
+    attractor: 'Attractor', void: 'Void', random: 'Random', blind: 'Blind spot',
+    nearby: 'Nearby', landmark: 'Landmark'
+  };
+  var COLOR = {
+    attractor: '#d8ff3e', void: '#8f74ff', random: '#c9c7c0',
+    blind: '#ffb03a', nearby: '#35d0e0', landmark: '#ff7a9c'
+  };
+  var NEAR_METRES = 300;
+  var MAX_DOTS = 420;
   var PREFS = 'elsewhere.prefs.v1';
 
   var el = {};
@@ -33,8 +41,16 @@
     arrivedOnce: false,
     mapStyle: 'dark',
     shared: false,
-    geoDenied: false
+    geoDenied: false,
+    places: [],
+    placesError: null,
+    placesLoading: false,
+    placesFetchedAt: 0,
+    showDots: true
   };
+
+  var placesTimer = null;
+  var placesToken = 0;
 
   /* ---- tiny helpers ---------------------------------------------- */
   function qs(s, root) { return (root || document).querySelector(s); }
@@ -112,7 +128,19 @@
       btnExport: qs('#btnExport'),
       btnImport: qs('#btnImport'),
       importFile: qs('#importFile'),
-      btnClear: qs('#btnClear')
+      btnClear: qs('#btnClear'),
+      resPlace: qs('#resPlace'),
+      placesRow: qs('#placesRow'),
+      placesCount: qs('#placesCount'),
+      placesPulse: qs('#placesPulse'),
+      btnPlaces: qs('#btnPlaces'),
+      btnPlacesDots: qs('#btnPlacesDots'),
+      placesDrawer: qs('#places'),
+      placesList: qs('#placesList'),
+      placesSub: qs('#placesSub'),
+      placeSearch: qs('#placeSearch'),
+      btnPlacesRefresh: qs('#btnPlacesRefresh'),
+      btnPlacesClear: qs('#btnPlacesClear')
     };
 
     loadPrefs();
@@ -191,6 +219,9 @@
       icon: targetIcon('attractor', 'Attractor'), interactive: false, keyboard: false, zIndexOffset: 400
     });
 
+    markers.poiRenderer = L.canvas({ padding: 0.4 });
+    markers.poiLayer = L.layerGroup();
+
     map.on('click', function (e) {
       if (state.navMode) { toast('Stop navigating before moving the origin'); return; }
       setOrigin(e.latlng.lat, e.latlng.lng, 'map');
@@ -246,6 +277,7 @@
 
     updateStatus();
     savePrefs();
+    schedulePlaces(900);
   }
 
   function updateStatus() {
@@ -265,7 +297,172 @@
     el.status.textContent = text;
   }
 
+  /* ---- known places ------------------------------------------------ */
+  function setPlacesPulse(mode) {
+    el.placesPulse.className = 'places__pulse' + (mode ? ' is-' + mode : '');
+  }
+
+  function schedulePlaces(ms) {
+    clearTimeout(placesTimer);
+    placesTimer = setTimeout(function () { refreshPlaces(false); }, ms == null ? 650 : ms);
+  }
+
+  function refreshPlaces(force) {
+    if (!state.origin) return Promise.resolve(state.places);
+    if (state.placesLoading) return Promise.resolve(state.places);
+
+    var origin = { lat: state.origin.lat, lon: state.origin.lon };
+    var radius = RADII[state.radiusIdx];
+    var token = ++placesToken;
+
+    state.placesLoading = true;
+    setPlacesPulse('busy');
+    el.placesCount.textContent = state.places.length ? 'Updating known places\u2026' : 'Looking for known places\u2026';
+
+    return EW.places.ensure(origin, radius, { force: !!force }).then(function (res) {
+      if (token !== placesToken) return state.places;
+      state.placesLoading = false;
+      state.places = res.places || [];
+      state.placesFetchedAt = res.fetchedAt || 0;
+      state.placesError = res.error || null;
+      updatePlacesRow();
+      renderPlaceDots();
+      // a point generated before the places arrived can still be annotated
+      if (state.current && state.current.stats && !state.current.place && state.current.type !== 'landmark') {
+        var np = nearestPlaceTo(state.current);
+        if (np) { state.current.place = np; paintPlaceLine(state.current); }
+      }
+      if (!el.placesDrawer.hidden) renderPlacesList();
+      return state.places;
+    }).catch(function (err) {
+      if (token !== placesToken) return state.places;
+      state.placesLoading = false;
+      state.placesError = String((err && err.message) || err);
+      updatePlacesRow();
+      return state.places;
+    });
+  }
+
+  function updatePlacesRow() {
+    var n = state.places.length;
+    if (state.placesLoading) { setPlacesPulse('busy'); return; }
+    if (state.placesError) {
+      setPlacesPulse('off');
+      el.placesCount.textContent = n
+        ? n.toLocaleString('en-GB') + ' places \u00b7 stored copy'
+        : 'Known places unavailable';
+      return;
+    }
+    setPlacesPulse(n ? 'live' : 'off');
+    el.placesCount.textContent = n
+      ? n.toLocaleString('en-GB') + (n === 1 ? ' known place \u00b7 ' : ' known places \u00b7 ') + RADIUS_LABEL[state.radiusIdx]
+      : 'No known places in this radius';
+  }
+
+  /* small dots for every known place, with the nearest one lit */
+  function renderPlaceDots() {
+    if (!markers.poiLayer) return;
+    markers.poiLayer.clearLayers();
+
+    if (!state.showDots || !state.places.length) {
+      if (map.hasLayer(markers.poiLayer)) map.removeLayer(markers.poiLayer);
+      return;
+    }
+
+    var list = state.places.slice(0, MAX_DOTS);
+    var hotId = null;
+
+    if (state.current) {
+      var best = Infinity;
+      for (var i = 0; i < list.length; i++) {
+        var d = G.distance(state.current, list[i]);
+        if (d < best) { best = d; hotId = list[i].id; }
+      }
+    }
+
+    for (var j = 0; j < list.length; j++) {
+      var p = list[j];
+      var hot = p.id === hotId;
+      L.circleMarker([p.lat, p.lon], {
+        renderer: markers.poiRenderer,
+        radius: hot ? 4.8 : 2.7,
+        weight: hot ? 1.6 : 0,
+        color: hot ? '#35d0e0' : '#cfcabb',
+        opacity: hot ? 1 : 0,
+        fillColor: hot ? '#35d0e0' : '#cfcabb',
+        fillOpacity: hot ? 0.95 : 0.4,
+        interactive: false
+      }).addTo(markers.poiLayer);
+    }
+
+    if (!map.hasLayer(markers.poiLayer)) markers.poiLayer.addTo(map);
+  }
+
+  function renderPlacesList() {
+    var q = (el.placeSearch.value || '').trim().toLowerCase();
+    var list = state.places.filter(function (p) {
+      return !q || String(p.name).toLowerCase().indexOf(q) > -1;
+    });
+
+    el.placesSub.textContent = state.places.length
+      ? state.places.length.toLocaleString('en-GB') + ' known places within ' + RADIUS_LABEL[state.radiusIdx] +
+        (q ? ' \u00b7 ' + list.length + ' matching' : '')
+      : 'Nothing found in this radius yet.';
+
+    el.placesList.textContent = '';
+
+    if (!list.length) {
+      var empty = document.createElement('div');
+      empty.className = 'jempty';
+      empty.textContent = state.places.length
+        ? 'No place matches that filter.'
+        : 'Move the map or widen the radius and the app will ask again.';
+      el.placesList.appendChild(empty);
+      return;
+    }
+
+    list.slice(0, 250).forEach(function (p) {
+      var row = document.createElement('button');
+      row.type = 'button';
+      row.className = 'jentry';
+
+      var dot = document.createElement('span');
+      dot.className = 'jentry__dot';
+      dot.setAttribute('data-t', 'place');
+
+      var main = document.createElement('span');
+      main.className = 'jentry__main';
+      var name = document.createElement('span');
+      name.className = 'jentry__intent';
+      name.textContent = p.name;
+      main.appendChild(name);
+
+      var right = document.createElement('span');
+      right.className = 'jentry__right';
+      var from = state.myPos || state.origin;
+      var d = from ? G.formatDistance(G.distance(from, p)) : { v: '', u: '' };
+      right.textContent = d.v + d.u;
+
+      row.appendChild(dot);
+      row.appendChild(main);
+      row.appendChild(right);
+      row.addEventListener('click', function () {
+        closeDrawer('places');
+        map.flyTo([p.lat, p.lon], 17, { duration: 0.8 });
+        toast(p.name);
+      });
+      el.placesList.appendChild(row);
+    });
+  }
+
   /* ---- generate --------------------------------------------------- */
+  function setBusy(on) {
+    el.btnGenerate.classList.toggle('is-busy', !!on);
+    if (on) el.btnGenerate.setAttribute('aria-busy', 'true');
+    else el.btnGenerate.removeAttribute('aria-busy');
+    el.btnGenerate.disabled = !!on;
+  }
+
   function generate() {
     if (!state.origin) {
       toast('Tap the map to choose where to search');
@@ -274,9 +471,21 @@
     }
     if (el.btnGenerate.classList.contains('is-busy')) return;
 
-    el.btnGenerate.classList.add('is-busy');
-    el.btnGenerate.setAttribute('aria-busy', 'true');
-    el.btnGenerate.disabled = true;
+    var needsPlaces = state.type === 'landmark' || state.type === 'nearby';
+    if (needsPlaces && !state.places.length && !state.placesError) {
+      setBusy(true);
+      refreshPlaces(true).then(function () {
+        setBusy(false);
+        if (!state.places.length) { toast('No known places here yet'); return; }
+        runGenerate();
+      });
+      return;
+    }
+    runGenerate();
+  }
+
+  function runGenerate() {
+    setBusy(true);
     var t0 = performance.now();
     var rMax = RADII[state.radiusIdx];
     var rMin = Math.max(50, Math.round(rMax * 0.2));
@@ -292,12 +501,12 @@
           rMax: rMax,
           type: state.type,
           uniforms: u,
-          journal: EW.journal.load()
+          journal: EW.journal.load(),
+          places: state.places,
+          near: state.type === 'nearby' ? NEAR_METRES : 0
         });
       } catch (err) {
-        el.btnGenerate.classList.remove('is-busy');
-        el.btnGenerate.removeAttribute('aria-busy');
-        el.btnGenerate.disabled = false;
+        setBusy(false);
         toast(err && err.message ? err.message : 'Generation failed');
         return;
       }
@@ -305,9 +514,7 @@
       var elapsed = performance.now() - t0;
       var wait = Math.max(0, 360 - elapsed);
       setTimeout(function () {
-        el.btnGenerate.classList.remove('is-busy');
-        el.btnGenerate.removeAttribute('aria-busy');
-        el.btnGenerate.disabled = false;
+        setBusy(false);
         showResult(res);
       }, wait);
     }, 24);
@@ -332,6 +539,7 @@
     EW.journal.add(entry);
     res.journalId = entry.id;
     updateBadge();
+    renderPlaceDots();
 
     placeTarget(res);
     renderResult(res);
@@ -366,8 +574,33 @@
     }
   }
 
-  function sheetHeight() {
-    return Math.round(parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--sheet-h')) || 0);
+  function nearestPlaceTo(pt) {
+    var best = null, bd = Infinity;
+    for (var i = 0; i < state.places.length; i++) {
+      var d = G.distance(pt, state.places[i]);
+      if (d < bd) { bd = d; best = state.places[i]; }
+    }
+    return best ? { name: best.name, url: best.url || '', d: bd } : null;
+  }
+
+  function paintPlaceLine(res) {
+    if (!res || !res.place || !res.place.name) { el.resPlace.hidden = true; return; }
+    el.resPlace.textContent = '';
+
+    var lbl = document.createElement('i');
+    lbl.textContent = res.type === 'landmark' ? 'known place' : 'nearest place';
+    var nm = document.createElement('b');
+    nm.textContent = res.place.name;
+
+    el.resPlace.appendChild(lbl);
+    el.resPlace.appendChild(nm);
+
+    if (res.place.d > 1) {
+      var dd = document.createElement('span');
+      dd.textContent = Math.round(res.place.d) + ' m away';
+      el.resPlace.appendChild(dd);
+    }
+    el.resPlace.hidden = false;
   }
 
   /* frame the point in the part of the map the sheet does not cover */
@@ -377,11 +610,23 @@
     var bounds = state.origin
       ? L.latLngBounds([[state.origin.lat, state.origin.lon], ll])
       : L.latLngBounds([ll, ll]);
-    map.flyToBounds(bounds, {
-      paddingTopLeft: [72, 148],
-      paddingBottomRight: [72, sheetHeight() + 62],
+
+    // measure the panel itself rather than trusting a cached CSS variable
+    var vis = qs('.panel:not([hidden])', el.sheet);
+    var size = map.getSize();
+    var panelH = vis ? Math.round(vis.getBoundingClientRect().height)
+                     : Math.round(size.y * 0.34);
+
+    var padTop = Math.min(148, Math.round(size.y * 0.16));
+    var padBottom = Math.min(panelH + 100, Math.round(size.y * 0.62));
+
+    // framed instantly: an animated flight can be left half-finished if the
+    // tab is busy or backgrounded, and the point would sit under the sheet
+    map.fitBounds(bounds, {
+      paddingTopLeft: [72, padTop],
+      paddingBottomRight: [72, padBottom],
       maxZoom: 16,
-      duration: 0.85
+      animate: false
     });
   }
 
@@ -422,14 +667,19 @@
       el.resIntent.hidden = true;
     }
 
+    paintPlaceLine(res);
+
     el.resCoords.textContent = G.formatCoord(res.lat, res.lon);
 
     if (res.stats) {
       var s = res.stats;
-      el.resStats.textContent =
-        nf(s.samples) + '\u00a0points \u00b7 ' + nf(s.cells) + '\u00a0squares \u00b7 ' +
-        s.expected.toFixed(2) + '\u00a0expected \u00b7 p\u00a0' + fmtP(res.cell.p) + ' \u00b7 ' +
-        s.ms + '\u00a0ms';
+      var bits = [nf(s.samples) + '\u00a0points', nf(s.cells) + '\u00a0squares'];
+      if (s.places > 0) bits.push(nf(s.places) + '\u00a0known');
+      bits.push('p\u00a0' + fmtP(res.cell.p), s.ms + '\u00a0ms');
+      el.resStats.textContent = bits.join(' \u00b7 ');
+      if (res.nearFallback) {
+        el.resStats.textContent += ' \u00b7 no known place in reach, unconstrained';
+      }
     } else if (res.cell && isFinite(res.cell.z)) {
       el.resStats.textContent = '\u03c3 ' + res.cell.z.toFixed(2);
     } else {
@@ -487,6 +737,7 @@
         } else if (!state.origin && state.shared) {
           state.origin = { lat: evt.pos.lat, lon: evt.pos.lon };
           markers.origin.setLatLng([state.origin.lat, state.origin.lon]).addTo(map);
+          schedulePlaces(400);
         }
       }
       updateLive();
@@ -602,7 +853,8 @@
 
   function measureSheet() {
     var vis = qs('.panel:not([hidden])', el.sheet);
-    var h = vis ? Math.round(vis.getBoundingClientRect().height) + 12 : 0;
+    if (!vis) return;                     // never zero the variable on a transient
+    var h = Math.round(vis.getBoundingClientRect().height) + 12;
     document.documentElement.style.setProperty('--sheet-h', h + 'px');
   }
 
@@ -715,9 +967,16 @@
   }
 
   /* ---- drawers ------------------------------------------------------ */
+  function drawerNode(which) {
+    if (which === 'about') return el.about;
+    if (which === 'places') return el.placesDrawer;
+    return el.drawer;
+  }
+
   function openDrawer(which) {
-    var node = which === 'about' ? el.about : el.drawer;
+    var node = drawerNode(which);
     if (which === 'drawer') renderJournal();
+    if (which === 'places') renderPlacesList();
     el.toast.classList.remove('is-up');
     node.hidden = false;
     document.body.style.overflow = 'hidden';
@@ -726,8 +985,7 @@
   }
 
   function closeDrawer(which) {
-    var node = which === 'about' ? el.about : el.drawer;
-    node.hidden = true;
+    drawerNode(which).hidden = true;
     document.body.style.overflow = '';
   }
 
@@ -771,6 +1029,7 @@
       map.flyTo([state.origin.lat, state.origin.lon], ZOOM[state.radiusIdx], { duration: 0.5 });
     }
     savePrefs();
+    schedulePlaces(500);
   }
 
   /* ---- url ---------------------------------------------------------- */
@@ -895,6 +1154,35 @@
     el.btnJournal.addEventListener('click', function () { openDrawer('drawer'); });
     el.btnInfo.addEventListener('click', function () { openDrawer('about'); });
 
+    el.btnPlaces.addEventListener('click', function () { openDrawer('places'); });
+
+    el.btnPlacesDots.addEventListener('click', function () {
+      state.showDots = !state.showDots;
+      el.btnPlacesDots.classList.toggle('is-on', state.showDots);
+      el.btnPlacesDots.setAttribute('aria-pressed', state.showDots ? 'true' : 'false');
+      renderPlaceDots();
+    });
+
+    el.placeSearch.addEventListener('input', renderPlacesList);
+
+    el.btnPlacesRefresh.addEventListener('click', function () {
+      refreshPlaces(true).then(function () {
+        toast(state.places.length ? 'Known places refreshed' : 'Still nothing here');
+      });
+    });
+
+    el.btnPlacesClear.addEventListener('click', function () {
+      if (!confirm('Remove every stored known place from this device?')) return;
+      EW.places.forget().then(function () {
+        state.places = [];
+        state.placesError = null;
+        updatePlacesRow();
+        renderPlaceDots();
+        renderPlacesList();
+        toast('Cleared');
+      });
+    });
+
     qsa('[data-close]').forEach(function (n) {
       n.addEventListener('click', function () { closeDrawer(n.getAttribute('data-close')); });
     });
@@ -902,6 +1190,7 @@
     document.addEventListener('keydown', function (e) {
       if (e.key === 'Escape') {
         if (!el.drawer.hidden) closeDrawer('drawer');
+        else if (!el.placesDrawer.hidden) closeDrawer('places');
         else if (!el.about.hidden) closeDrawer('about');
       }
     });

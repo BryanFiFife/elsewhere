@@ -149,7 +149,113 @@ function hardenPage(page) {
     check('cta is topmost at its own centre', hit.self, JSON.stringify(hit));
     check('cta sits inside the viewport', hit.rect[1] > 0 && hit.rect[1] + hit.rect[3] <= hit.vh, JSON.stringify(hit.rect));
 
-    /* ── 2. generator, many runs — own tab, destroyed afterwards ──── */
+    /* ── 1b. known places ────────────────────────────────────────── */
+    console.log('\n[1b] known places');
+    let placesReady = false;
+    try {
+      await page.waitForFunction(
+        () => /\d[\d,]* known place/.test(document.querySelector('#placesCount').textContent),
+        { timeout: 25000 }
+      );
+      placesReady = true;
+    } catch (e) { /* reported below */ }
+
+    const rowText = await page.$eval('#placesCount', n => n.textContent.trim());
+    note('places row: ' + rowText);
+    check('known places fetched for the radius', placesReady, rowText);
+
+    const store = await page.evaluate(async () => {
+      const origin = { lat: 55.9533, lon: -3.1883 };
+      const first = await EW.places.ensure(origin, 1000, {});
+      const t0 = performance.now();
+      const second = await EW.places.ensure(origin, 1000, {});
+      const inv = await EW.places.inventory();
+      return {
+        count: first.count,
+        cached: second.cached,
+        ms: Math.round(performance.now() - t0),
+        sample: (first.places[0] || {}).name || null,
+        stored: inv.stored,
+        err: first.error
+      };
+    });
+    note('stored ' + store.stored + ' · in range ' + store.count + ' · cached read ' + store.ms + 'ms · e.g. ' + store.sample);
+    check('places stored in IndexedDB', store.stored > 0, JSON.stringify(store));
+    check('places in range', store.count > 0, String(store.count));
+    check('second query served from cache', store.cached === true);
+    check('cached read under 150 ms', store.ms < 150, String(store.ms));
+    check('no storage error', !store.err, String(store.err));
+
+    const gen = await page.evaluate(async () => {
+      const origin = { lat: 55.9533, lon: -3.1883 };
+      const res = await EW.places.ensure(origin, 1000, {});
+      const PL = res.places;
+
+      function run(type, near, placesArr) {
+        return EW.generator.generate({
+          lat: origin.lat, lon: origin.lon, rMin: 200, rMax: 1000,
+          type: type, near: near || 0, journal: [],
+          uniforms: EW.rng.uniforms(2 * EW.generator.SAMPLES),
+          places: placesArr || PL
+        });
+      }
+
+      const near = run('nearby', 300);
+      let nearMin = Infinity;
+      for (let i = 0; i < PL.length; i++) {
+        const d = EW.geo.distance({ lat: near.lat, lon: near.lon }, PL[i]);
+        if (d < nearMin) nearMin = d;
+      }
+
+      const lm = run('landmark');
+      const lmHit = PL.filter(p => p.name === lm.place.name)[0] || null;
+
+      const names = new Set();
+      for (let i = 0; i < 40; i++) names.add(run('landmark').place.name);
+
+      const att = run('attractor');
+      let attMin = Infinity;
+      for (let i = 0; i < PL.length; i++) {
+        const d = EW.geo.distance({ lat: att.lat, lon: att.lon }, PL[i]);
+        if (d < attMin) attMin = d;
+      }
+
+      let noPlaceErr = null, fb = null;
+      try { run('landmark', 0, []); } catch (e) { noPlaceErr = e.message; }
+      fb = run('nearby', 300, []);
+      const plain = EW.generator.generate({
+        lat: origin.lat, lon: origin.lon, rMin: 200, rMax: 1000, type: 'attractor',
+        uniforms: EW.rng.uniforms(2 * EW.generator.SAMPLES), journal: []
+      });
+
+      return {
+        nearMin: Math.round(nearMin), nearPlace: near.place && near.place.name,
+        nearZ: +near.cell.z.toFixed(2), nearFallback: near.nearFallback,
+        lmName: lm.place && lm.place.name, lmMatched: !!lmHit,
+        lmCoordsMatch: lmHit ? (Math.abs(lmHit.lat - lm.lat) < 1e-9 && Math.abs(lmHit.lon - lm.lon) < 1e-9) : false,
+        variety: names.size,
+        attPlace: att.place && att.place.name, attMin: Math.round(attMin),
+        noPlaceErr: noPlaceErr, fbFallback: fb.nearFallback,
+        plainHasNoPlaces: plain.stats.places === 0 && !plain.place
+      };
+    });
+
+    note('nearby: ' + gen.nearMin + ' m from "' + gen.nearPlace + '" (σ ' + gen.nearZ + ')');
+    note('landmark: "' + gen.lmName + '" · ' + gen.variety + ' distinct over 40 draws');
+    note('attractor nearest place: "' + gen.attPlace + '" at ' + gen.attMin + ' m');
+
+    check('nearby lands within reach of a real place', gen.nearMin <= 340, JSON.stringify(gen.nearMin));
+    check('nearby does not silently fall back', gen.nearFallback === false);
+    check('nearby names that place', !!gen.nearPlace, String(gen.nearPlace));
+    check('landmark returns a place that exists', gen.lmMatched, String(gen.lmName));
+    check('landmark coordinates are the place coordinates', gen.lmCoordsMatch === true);
+    check('landmark varies between draws', gen.variety > 5, String(gen.variety));
+    check('attractor annotates its nearest place', !!gen.attPlace, String(gen.attPlace));
+    check('landmark refuses with no places', /No known places/.test(gen.noPlaceErr || ''), String(gen.noPlaceErr));
+    check('nearby degrades when there are no places', gen.fbFallback === true);
+    check('no places means no annotation', gen.plainHasNoPlaces === true);
+
+    /* ── 2. generator, many runs ─────────────────────────────────── */
     console.log('\n[2] generator statistics');
     const statPage = hardenPage(await browser.newPage());
     await statPage.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 30000 });
@@ -236,7 +342,8 @@ function hardenPage(page) {
       stats: document.querySelector('#resStats').textContent.trim(),
       marker: !!document.querySelector('.mk-target'),
       lineDrawn: !!document.querySelector('.leaflet-overlay-pane path'),
-      badge: document.querySelector('#journalBadge').textContent.trim()
+      badge: document.querySelector('#journalBadge').textContent.trim(),
+      place: document.querySelector('#resPlace').hidden ? '' : document.querySelector('#resPlace').textContent.trim()
     }));
     note('result: ' + r1.type + ' ' + r1.sigma + ', ' + r1.dist + r1.unit + ' — ' + r1.line);
     note('stats: ' + r1.stats);
@@ -250,6 +357,8 @@ function hardenPage(page) {
     check('target marker on map', r1.marker);
     check('origin-to-point line drawn', r1.lineDrawn);
     check('journal badge set to 1', r1.badge === '1', r1.badge);
+    note('place line: ' + r1.place);
+    check('result names the nearest known place', /nearest place/i.test(r1.place), JSON.stringify(r1.place));
 
     // the map flies for 850 ms; measure where the marker lands afterwards
     await new Promise(r => setTimeout(r, 1400));
@@ -363,20 +472,57 @@ function hardenPage(page) {
     check('shared sigma restored', /2\.40/.test(sh.sigma), sh.sigma);
 
     /* ── 9. every type through the UI ────────────────────────────── */
-    console.log('\n[9] all four types through the UI');
+    console.log('\n[9] all six types through the UI');
     await page.goto(BASE, { waitUntil: 'domcontentloaded' });
     await page.waitForFunction(() => /Ready/i.test(document.querySelector('#status').textContent), { timeout: 25000 });
-    const chipFor = { attractor: 'Attractor', void: 'Void', random: 'Random', blind: 'Blind spot' };
-    for (const t of ['void', 'random', 'blind', 'attractor']) {
+    await page.waitForFunction(() => /\d[\d,]* known place/.test(document.querySelector('#placesCount').textContent), { timeout: 25000 });
+    const chipFor = {
+      attractor: 'Attractor', void: 'Void', random: 'Random',
+      blind: 'Blind spot', nearby: 'Nearby', landmark: 'Landmark'
+    };
+    for (const t of ['void', 'random', 'blind', 'nearby', 'landmark', 'attractor']) {
       await page.evaluate(type => document.querySelector('.seg__btn[data-type="' + type + '"]').click(), t);
       await clickEl(page, '#btnGenerate');
       await page.waitForFunction(expected => {
         const p = document.querySelector('[data-panel="result"]');
         return p && !p.hidden && document.querySelector('#resType').textContent.trim() === expected;
-      }, { timeout: 15000 }, chipFor[t]);
-      note(t + ' -> ' + (await page.$eval('#resZ', n => n.textContent.trim())));
+      }, { timeout: 20000 }, chipFor[t]);
+      const info = await page.evaluate(() => ({
+        z: document.querySelector('#resZ').textContent.trim(),
+        place: document.querySelector('#resPlace').hidden ? '' : document.querySelector('#resPlace').textContent.trim()
+      }));
+      note(t + ' -> ' + info.z + ' · ' + info.place);
       check('type ' + t + ' generated', true);
+      check('type ' + t + ' names a place', info.place.length > 0, info.place);
     }
+
+    /* ── 9b. places drawer ───────────────────────────────────────── */
+    console.log('\n[9b] places drawer');
+    await clickEl(page, '#btnPlaces');
+    await page.waitForFunction(() => !document.querySelector('#places').hidden, { timeout: 5000 });
+    const drawer = await page.evaluate(() => ({
+      rows: document.querySelectorAll('#placesList .jentry').length,
+      sub: document.querySelector('#placesSub').textContent.trim(),
+      first: (document.querySelector('#placesList .jentry__intent') || {}).textContent || ''
+    }));
+    note('drawer: ' + drawer.rows + ' rows · ' + drawer.sub);
+    check('places drawer lists places', drawer.rows > 20, String(drawer.rows));
+
+    if (drawer.first) {
+      await page.type('#placeSearch', drawer.first.slice(0, 6));
+      const filtered = await page.evaluate(() => document.querySelectorAll('#placesList .jentry').length);
+      note('filter "' + drawer.first.slice(0, 6) + '" -> ' + filtered + ' rows');
+      check('filter keeps the matching place', filtered >= 1 && filtered <= drawer.rows, String(filtered));
+      await page.evaluate(() => { document.querySelector('#placeSearch').value = ''; document.querySelector('#placeSearch').dispatchEvent(new Event('input', { bubbles: true })); });
+    }
+
+    const dotsBefore = await page.$eval('#btnPlacesDots', n => n.getAttribute('aria-pressed'));
+    await clickEl(page, '#btnPlacesDots');
+    const dotsAfter = await page.$eval('#btnPlacesDots', n => n.getAttribute('aria-pressed'));
+    check('places-on-map toggle flips', dotsBefore !== dotsAfter, dotsBefore + ' -> ' + dotsAfter);
+    await clickEl(page, '#btnPlacesDots');
+
+    await page.evaluate(() => document.querySelector('#places [data-close]').click());
 
     /* ── 10. settings persist ────────────────────────────────────── */
     console.log('\n[10] settings');
@@ -408,6 +554,7 @@ function hardenPage(page) {
     await desk.setGeolocation({ latitude: 55.9533, longitude: -3.1883, accuracy: 8 });
     await desk.goto(BASE, { waitUntil: 'domcontentloaded' });
     await desk.waitForFunction(() => /Ready/i.test(document.querySelector('#status').textContent), { timeout: 25000 });
+    await desk.waitForFunction(() => /\d[\d,]* known place/.test(document.querySelector('#placesCount').textContent), { timeout: 25000 });
     await clickEl(desk, '#btnGenerate');
     await desk.waitForFunction(() => !document.querySelector('[data-panel="result"]').hidden, { timeout: 15000 });
     await shot(desk, 'desktop-result.png');

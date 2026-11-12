@@ -7,6 +7,7 @@ var CORE = [
   '/index.html',
   '/assets/css/app.css',
   '/assets/js/geo.js',
+  '/assets/js/places.js',
   '/assets/js/rng.js',
   '/assets/js/generator.js',
   '/assets/js/journal.js',

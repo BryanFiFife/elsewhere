@@ -32,7 +32,12 @@ const BASE = process.argv[2] || 'https://elsewhere-point.pages.dev/';
 
     await page.click('#btnGenerate');
     await page.waitForFunction(() => !document.querySelector('[data-panel="result"]').hidden);
-    await new Promise(r => setTimeout(r, 1800));
+    // measure after the entry transition, not during it
+    await page.waitForFunction(() => {
+      const p = document.querySelector('[data-panel="result"]');
+      return p && !p.hidden && getComputedStyle(p).transform === 'none';
+    }, { timeout: 10000 });
+    await new Promise(r => setTimeout(r, 300));
 
     const after = await page.evaluate(() => {
       const bad = [];

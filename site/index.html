@@ -107,6 +107,12 @@
         <button type="button" role="radio" aria-checked="false" data-type="void" class="seg__btn">
           <b>Void</b><i>where it thins out</i>
         </button>
+        <button type="button" role="radio" aria-checked="false" data-type="nearby" class="seg__btn">
+          <b>Nearby</b><i>a clump, by a real place</i>
+        </button>
+        <button type="button" role="radio" aria-checked="false" data-type="landmark" class="seg__btn">
+          <b>Landmark</b><i>a named place itself</i>
+        </button>
         <button type="button" role="radio" aria-checked="false" data-type="random" class="seg__btn">
           <b>Random</b><i>no test applied</i>
         </button>
@@ -116,15 +122,30 @@
       </div>
     </div>
 
+    <div class="places" id="placesRow">
+      <button type="button" class="places__main" id="btnPlaces">
+        <span class="places__pulse" id="placesPulse" aria-hidden="true"></span>
+        <span class="places__count" id="placesCount">Looking for known places&hellip;</span>
+        <svg class="places__chev" viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5.5 15.5 12 9 18.5"/></svg>
+      </button>
+      <button type="button" class="places__eye is-on" id="btnPlacesDots" aria-pressed="true"
+              title="Show known places on the map" aria-label="Show known places on the map">
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M2.2 12S5.9 5.6 12 5.6 21.8 12 21.8 12 18.1 18.4 12 18.4 2.2 12 2.2 12Z"/>
+          <circle cx="12" cy="12" r="2.6"/>
+        </svg>
+      </button>
+    </div>
+
     <div class="field field--tight">
       <span class="field__label">Maximum distance</span>
       <div class="range">
-        <input id="radius" type="range" min="0" max="5" step="1" value="2"
+        <input id="radius" type="range" min="0" max="4" step="1" value="2"
                aria-label="Maximum distance" aria-valuetext="1 kilometre">
         <output id="radiusOut" for="radius">1 km</output>
       </div>
       <div class="range__scale" aria-hidden="true">
-        <span>250 m</span><span>500 m</span><span>1 km</span><span>3 km</span><span>8 km</span><span>20 km</span>
+        <span>250 m</span><span>500 m</span><span>1 km</span><span>3 km</span><span>8 km</span>
       </div>
     </div>
 
@@ -151,6 +172,7 @@
     <p class="result__line" id="resLine">away, on a bearing of --</p>
 
     <p class="result__intent" id="resIntent" hidden></p>
+    <p class="result__place" id="resPlace" hidden></p>
 
     <div class="result__coords">
       <span id="resCoords">--</span>
@@ -208,6 +230,28 @@
   </div>
 </div>
 
+<!-- ── known places ────────────────────────────────────────── -->
+<div class="drawer" id="places" hidden aria-label="Known places">
+  <div class="drawer__scrim" data-close="places"></div>
+  <div class="drawer__body" role="dialog" aria-modal="true" aria-labelledby="placesH">
+    <div class="drawer__head">
+      <h2 id="placesH">Known places</h2>
+      <button class="iconbtn" type="button" data-close="places" aria-label="Close">
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></svg>
+      </button>
+    </div>
+    <p class="drawer__sub" id="placesSub">Every geotagged Wikipedia article in range.</p>
+    <div class="placefilter">
+      <input id="placeSearch" type="search" placeholder="filter by name" autocomplete="off" spellcheck="false" aria-label="Filter places by name">
+    </div>
+    <div class="drawer__list" id="placesList"></div>
+    <div class="drawer__foot">
+      <button class="ghost" id="btnPlacesRefresh" type="button">Refresh</button>
+      <button class="ghost ghost--danger" id="btnPlacesClear" type="button">Clear stored</button>
+    </div>
+  </div>
+</div>
+
 <!-- ── about ───────────────────────────────────────────────── -->
 <div class="drawer" id="about" hidden aria-label="About">
   <div class="drawer__scrim" data-close="about"></div>
@@ -227,16 +271,21 @@
       <p><b>Attractor</b> returns the square with the largest surplus. <b>Void</b> returns the square with the largest deficit. <b>Random</b> returns an ordinary point from the scatter, with no test applied at all. <b>Blind spot</b> returns a high-surplus square that is as far as possible from anywhere already in your journal.</p>
       <p>The sigma figure is the standard score of the chosen square: how many standard deviations it sits from the expected count. Anything past about three is genuinely unusual for a uniform scatter.</p>
 
+      <h3>Known places</h3>
+      <p>Separately, the app asks Wikipedia which geotagged articles exist inside your radius and keeps them on this device. That is a decent working definition of a place somebody thought worth writing down: 500 of them sit within three kilometres of central Edinburgh, and about eleven sit within eight kilometres of a Highland glen.</p>
+      <p>Those places are then folded into the same arithmetic. <b>Nearby</b> is an attractor restricted to squares within three hundred metres of a real place, so the clump is a clump and also somewhere you can stand. <b>Landmark</b> returns a named place directly, weighted towards places the scatter runs hot around. Every other mode reports the nearest known place to the point it picked.</p>
+      <p>The list is cached in IndexedDB for a day, so a second look at the same area costs nothing. Clearing it is in the places panel.</p>
+
       <h3>What it is not</h3>
       <p>Nothing here is quantum, and nothing here is a measurement of anything outside the arithmetic. The randomness comes from your browser's cryptographic generator, which is seeded by your operating system and is, for every purpose this app has, indistinguishable from any other good source.</p>
       <p>The anomaly is an anomaly <i>in the sample</i>. It is a property of the numbers, not of the place. A clump of points is not a vortex, a ley line or a signal. What is real is the thing that happens when a person walks to a coordinate they did not choose and pays attention on the way.</p>
 
       <h3>Privacy</h3>
-      <p>No account, no analytics, no cookies, no server-side code. Your position never leaves the device. Everything is computed in this tab; the only outbound requests are map tiles and, if it is switched on, a place-name lookup.</p>
-      <p>The journal lives in this browser's local storage. Clearing your browser data deletes it. Export it if you care about it.</p>
+      <p>No account, no analytics, no cookies, no server-side code. Everything is computed in this tab. Three things leave the device, and only when the app needs them: map tiles for the area you are looking at, the coordinate you search for known places, and the coordinate of a point you ask to have named.</p>
+      <p>The journal and the place cache live in this browser's storage. Clearing your browser data deletes them. Export the journal if you care about it.</p>
 
       <h3>Map data</h3>
-      <p>Tiles by <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap contributors</a>, inverted to a night palette in the browser with a CSS filter. No map key, no map account, no per-view billing. Place names via <a href="https://nominatim.org/" target="_blank" rel="noopener noreferrer">Nominatim</a>.</p>
+      <p>Tiles by <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap contributors</a>, inverted to a night palette in the browser with a CSS filter. No map key, no map account, no per-view billing. Place names and known places via <a href="https://www.mediawiki.org/wiki/API:Geosearch" target="_blank" rel="noopener noreferrer">Wikipedia GeoSearch</a> and <a href="https://nominatim.org/" target="_blank" rel="noopener noreferrer">Nominatim</a>.</p>
 
       <h3>Licence</h3>
       <p>Free and open source under the MIT licence. Take it, fork it, run it yourself. <a href="https://github.com/BryanFiFife/elsewhere" target="_blank" rel="noopener noreferrer">Source on GitHub</a>.</p>
@@ -252,6 +301,7 @@
 
 <script src="/assets/vendor/leaflet/leaflet.js"></script>
 <script src="/assets/js/geo.js"></script>
+<script src="/assets/js/places.js"></script>
 <script src="/assets/js/rng.js"></script>
 <script src="/assets/js/generator.js"></script>
 <script src="/assets/js/journal.js"></script>

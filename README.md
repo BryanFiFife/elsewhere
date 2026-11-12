@@ -22,6 +22,8 @@ count a uniform scatter would have put there.
 | **Void** | the largest deficit |
 | **Random** | an ordinary point from the scatter, no test applied |
 | **Blind spot** | a high-surplus square as far as possible from anything already in your journal |
+| **Nearby** | an attractor restricted to squares within 300 m of a real, named place |
+| **Landmark** | a named place itself, weighted towards places the scatter runs hot around |
 
 Only squares lying **entirely inside the ring** are scored, so the expected
 count per square is exactly `N × cellArea / ringArea`. That makes every score
@@ -38,6 +40,24 @@ Each result reports:
 
 Attractors land around σ +4.5 in practice, voids pin at σ −2.46 (every
 zero-count square has exactly the same score, so the tie is broken at random).
+
+### Known places
+
+Separately from the scatter, the app asks Wikipedia which geotagged articles sit
+inside your radius and keeps them on the device. That is a decent working
+definition of a place somebody thought worth writing down: roughly 500 within
+3 km of central Edinburgh, a dozen within 8 km of a Highland glen.
+
+The places are projected into the same local plane as the scatter, so they can
+constrain the search (**Nearby**), become the destination (**Landmark**), or
+simply annotate the result with the nearest named thing. Dots for every known
+place are drawn on the map with a canvas renderer, and the nearest one to your
+point is lit.
+
+Results are cached in IndexedDB for 24 hours, keyed by the rounded coordinate
+and radius, so a second look at the same area costs one cache read and no
+network. The store is capped at 8,000 rows and trims its oldest quarter when it
+grows past that.
 
 ### What it is not
 
@@ -71,6 +91,7 @@ site/
   sw.js                    shell cache only
   assets/css/app.css
   assets/js/geo.js         haversine, bearing, local tangent plane
+  assets/js/places.js      Wikipedia GeoSearch + IndexedDB cache
   assets/js/rng.js         crypto.getRandomValues -> Float64 uniforms
   assets/js/generator.js   the scatter, the grid, the z-scores
   assets/js/journal.js     localStorage CRUD + import/export
@@ -101,12 +122,14 @@ node tools/e2e.js https://elsewhere-point.pages.dev/   # production
 node tools/check_sw.js https://elsewhere-point.pages.dev/
 ```
 
-The suite drives a real Chrome: it grants a synthetic GPS fix, runs 128
-generations across four radii and four point types, asserts every point lands
-inside its ring, checks the closed-form expected count, verifies determinism
-against fixed entropy, and then exercises the whole UI — generate, navigate,
-log a note, export, import, shared link, settings persistence, and desktop
-containment. It exits non-zero on any failure.
+The suite drives a real Chrome: it grants a synthetic GPS fix, fetches the known
+places for the area, runs 128 generations across four radii and four point
+types, asserts every point lands inside its ring, checks the closed-form
+expected count, verifies determinism against fixed entropy, proves that Nearby
+lands within reach of a real place and that Landmark returns one that exists,
+and then exercises the whole UI — all six modes, the places drawer and filter,
+generate, navigate, log a note, export, import, shared link, settings
+persistence, and desktop containment. It exits non-zero on any failure.
 
 ## Deploy
 
