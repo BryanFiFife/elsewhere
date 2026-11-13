@@ -167,6 +167,7 @@
     // quietly handing back an unconstrained point
     var nearFallback = (nearDist > 0 && PL.length === 0);
     var landmark = null;
+    var caveat = null;
 
     if (type === 'landmark') {
       landmark = pickLandmark(PL, counts, expected, sd, u[0]);
@@ -203,6 +204,9 @@
       }
 
     } else if (type === 'blind') {
+      if (!(opts.journal && opts.journal.length)) {
+        caveat = 'Your journal is empty, so this is an ordinary attractor rather than a true blind spot.';
+      }
       var top = [];
       for (var bi = 0; bi < posIdx.length && top.length < 48; bi++) {
         if (mask && !mask[posIdx[bi]]) continue;
@@ -281,6 +285,7 @@
       bearing: brg,
       place: placeOut,
       nearFallback: nearFallback,
+      caveat: caveat,
       cell: {
         count: count,
         expected: expected,

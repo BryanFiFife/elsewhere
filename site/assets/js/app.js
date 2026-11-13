@@ -42,6 +42,8 @@
     mapStyle: 'dark',
     shared: false,
     geoDenied: false,
+    locateShown: false,
+    originName: '',
     places: [],
     placesError: null,
     placesLoading: false,
@@ -140,8 +142,23 @@
       placesSub: qs('#placesSub'),
       placeSearch: qs('#placeSearch'),
       btnPlacesRefresh: qs('#btnPlacesRefresh'),
-      btnPlacesClear: qs('#btnPlacesClear')
+      btnPlacesClear: qs('#btnPlacesClear'),
+      btnBack: qs('#btnBack'),
+      btnLastPoint: qs('#btnLastPoint'),
+      btnRecentre: qs('#btnRecentre'),
+      locateBlock: qs('#locateBlock'),
+      locateForm: qs('#locateForm'),
+      locateInput: qs('#locateInput'),
+      locateMsg: qs('#locateMsg'),
+      btnUseLocation: qs('#btnUseLocation'),
+      live: qs('#live'),
+      resCaveat: qs('#resCaveat')
     };
+
+    el.panels = qsa('.panel');
+    el.panels.forEach(function (p) { p.tabIndex = -1; });
+    el.placesRow.hidden = true;
+    el.locateBlock.hidden = true;
 
     loadPrefs();
     initMap();
@@ -154,6 +171,9 @@
     if (!state.shared) {
       setStatus('Locating you\u2026');
       EW.nav.once();
+      setTimeout(function () {
+        if (!state.origin) showLocate('Search for a place, or zoom in and tap the map.');
+      }, 5000);
     }
 
     EW.nav.on(handleNav);
@@ -236,6 +256,7 @@
 
   function applyMapStyle() {
     el.map.classList.toggle('map-night', state.mapStyle === 'dark');
+    el.map.classList.toggle('zoom-far', state.mapStyle === 'dark' && map.getZoom() < 6);
     el.btnLayers.classList.toggle('is-on', state.mapStyle === 'light');
   }
 
@@ -260,7 +281,16 @@
 
   /* ---- origin ----------------------------------------------------- */
   function setOrigin(lat, lon, source) {
+    if (source === 'map' && map.getZoom() < 9) {
+      toast('Zoom in first \u2014 tap a town, not a continent');
+      showLocate('Zoom into the map, then tap. Or search for a place.');
+      return;
+    }
+
     state.origin = { lat: lat, lon: lon };
+    state.originName = '';
+    state.locateShown = false;
+    syncOriginUI();
 
     markers.origin.setLatLng([lat, lon]).addTo(map);
     markers.circle.setLatLng([lat, lon]).setRadius(RADII[state.radiusIdx]).addTo(map);
@@ -268,7 +298,7 @@
     if (state.navMode) finishNav(false);
 
     if (source !== 'silent') {
-      map.flyTo([lat, lon], ZOOM[state.radiusIdx], { duration: 0.7 });
+      map.setView([lat, lon], ZOOM[state.radiusIdx], { animate: false });
     }
 
     if (state.current && state.current.journalId) {
@@ -277,19 +307,33 @@
 
     updateStatus();
     savePrefs();
-    schedulePlaces(900);
+    schedulePlaces(600);
+    reverseOriginLabel();
+  }
+
+  /* a place name for the search centre, so the status line says where */
+  function reverseOriginLabel() {
+    if (!state.origin) return;
+    var lat = state.origin.lat, lon = state.origin.lon;
+    lookupPlace(lat, lon).then(function (name) {
+      if (!name || !state.origin) return;
+      if (Math.abs(state.origin.lat - lat) > 1e-6 || Math.abs(state.origin.lon - lon) > 1e-6) return;
+      state.originName = name;
+      updateStatus();
+    }).catch(function () {});
   }
 
   function updateStatus() {
     if (!state.origin) {
-      setStatus(state.geoDenied ? 'Location unavailable \u00b7 tap the map to choose a start point'
+      setStatus(state.geoDenied ? 'Location blocked \u00b7 search for a place'
                                 : 'Locating you\u2026');
       return;
     }
     if (!state.current) {
       var acc = (state.myPos && state.myPos.accuracy)
         ? ' \u00b7 \u00b1' + Math.round(state.myPos.accuracy) + ' m' : '';
-      setStatus('Ready' + acc + ' \u00b7 ' + RADIUS_LABEL[state.radiusIdx] + ' radius');
+      var name = state.originName ? ' \u00b7 ' + state.originName : '';
+      setStatus('Ready' + name + acc + ' \u00b7 ' + RADIUS_LABEL[state.radiusIdx]);
     }
   }
 
@@ -316,8 +360,7 @@
     var token = ++placesToken;
 
     state.placesLoading = true;
-    setPlacesPulse('busy');
-    el.placesCount.textContent = state.places.length ? 'Updating known places\u2026' : 'Looking for known places\u2026';
+    updatePlacesRow();
 
     return EW.places.ensure(origin, radius, { force: !!force }).then(function (res) {
       if (token !== placesToken) return state.places;
@@ -345,7 +388,11 @@
 
   function updatePlacesRow() {
     var n = state.places.length;
-    if (state.placesLoading) { setPlacesPulse('busy'); return; }
+    if (state.placesLoading) {
+      setPlacesPulse('busy');
+      el.placesCount.textContent = n ? 'Updating known places\u2026' : 'Searching for known places\u2026';
+      return;
+    }
     if (state.placesError) {
       setPlacesPulse('off');
       el.placesCount.textContent = n
@@ -356,7 +403,7 @@
     setPlacesPulse(n ? 'live' : 'off');
     el.placesCount.textContent = n
       ? n.toLocaleString('en-GB') + (n === 1 ? ' known place \u00b7 ' : ' known places \u00b7 ') + RADIUS_LABEL[state.radiusIdx]
-      : 'No known places in this radius';
+      : 'No known places within ' + RADIUS_LABEL[state.radiusIdx];
   }
 
   /* small dots for every known place, with the nearest one lit */
@@ -380,19 +427,31 @@
       }
     }
 
+    var liveTo = Math.min(list.length, 160);
     for (var j = 0; j < list.length; j++) {
       var p = list[j];
       var hot = p.id === hotId;
-      L.circleMarker([p.lat, p.lon], {
+      var clickable = j < liveTo;
+      var mk = L.circleMarker([p.lat, p.lon], {
         renderer: markers.poiRenderer,
-        radius: hot ? 4.8 : 2.7,
-        weight: hot ? 1.6 : 0,
-        color: hot ? '#35d0e0' : '#cfcabb',
-        opacity: hot ? 1 : 0,
+        radius: hot ? 5 : (clickable ? 3.1 : 2.3),
+        weight: hot ? 1.6 : (clickable ? 1 : 0),
+        color: hot ? '#35d0e0' : 'rgba(207,202,187,.5)',
+        opacity: hot ? 1 : (clickable ? 0.7 : 0),
         fillColor: hot ? '#35d0e0' : '#cfcabb',
-        fillOpacity: hot ? 0.95 : 0.4,
-        interactive: false
-      }).addTo(markers.poiLayer);
+        fillOpacity: hot ? 0.95 : (clickable ? 0.44 : 0.26),
+        interactive: clickable
+      });
+      if (clickable) {
+        mk.bindTooltip(p.name, { direction: 'top', offset: [0, -7], className: 'poi-tip' });
+        (function (place) {
+          mk.on('click', function (e) {
+            if (e.originalEvent) L.DomEvent.stopPropagation(e);
+            toast(place.name);
+          });
+        })(p);
+      }
+      mk.addTo(markers.poiLayer);
     }
 
     if (!map.hasLayer(markers.poiLayer)) markers.poiLayer.addTo(map);
@@ -465,7 +524,8 @@
 
   function generate() {
     if (!state.origin) {
-      toast('Tap the map to choose where to search');
+      toast('Search for a place, or zoom in and tap the map');
+      showLocate('Search for a place, or zoom in and tap the map.');
       flashSheet();
       return;
     }
@@ -512,7 +572,7 @@
       }
 
       var elapsed = performance.now() - t0;
-      var wait = Math.max(0, 360 - elapsed);
+      var wait = Math.max(0, 160 - elapsed);
       setTimeout(function () {
         setBusy(false);
         showResult(res);
@@ -600,6 +660,7 @@
       dd.textContent = Math.round(res.place.d) + ' m away';
       el.resPlace.appendChild(dd);
     }
+    el.resPlace.title = res.place.name;
     el.resPlace.hidden = false;
   }
 
@@ -617,7 +678,8 @@
     var panelH = vis ? Math.round(vis.getBoundingClientRect().height)
                      : Math.round(size.y * 0.34);
 
-    var padTop = Math.min(148, Math.round(size.y * 0.16));
+    var padTop = Math.min(130 + (el.notice.hidden ? 0 : Math.round(el.notice.getBoundingClientRect().height) + 14),
+                          Math.round(size.y * 0.34));
     var padBottom = Math.min(panelH + 100, Math.round(size.y * 0.62));
 
     // framed instantly: an animated flight can be left half-finished if the
@@ -669,13 +731,20 @@
 
     paintPlaceLine(res);
 
+    if (res.caveat) {
+      el.resCaveat.textContent = res.caveat;
+      el.resCaveat.hidden = false;
+    } else {
+      el.resCaveat.hidden = true;
+    }
+
     el.resCoords.textContent = G.formatCoord(res.lat, res.lon);
 
     if (res.stats) {
       var s = res.stats;
       var bits = [nf(s.samples) + '\u00a0points', nf(s.cells) + '\u00a0squares'];
       if (s.places > 0) bits.push(nf(s.places) + '\u00a0known');
-      bits.push('p\u00a0' + fmtP(res.cell.p), s.ms + '\u00a0ms');
+      bits.push('p\u00a0' + fmtP(res.cell.p));
       el.resStats.textContent = bits.join(' \u00b7 ');
       if (res.nearFallback) {
         el.resStats.textContent += ' \u00b7 no known place in reach, unconstrained';
@@ -737,6 +806,7 @@
         } else if (!state.origin && state.shared) {
           state.origin = { lat: evt.pos.lat, lon: evt.pos.lon };
           markers.origin.setLatLng([state.origin.lat, state.origin.lon]).addTo(map);
+          syncOriginUI();
           schedulePlaces(400);
         }
       }
@@ -748,10 +818,11 @@
     } else if (evt.type === 'compass') {
       el.navCompass.textContent = 'compass';
     } else if (evt.type === 'error') {
-      if (evt.code === 1) {
+      // gets fired twice: once for the initial fix, once for the watch
+      if (evt.code === 1 && !state.geoDenied) {
         state.geoDenied = true;
-        setStatus('Location blocked \u00b7 tap the map to choose a start point');
-        showNotice('Location is off, so Elsewhere cannot find you. Tap anywhere on the map to set the starting point.');
+        setStatus('Location blocked \u00b7 search for a place');
+        showLocate('Location is blocked. Search for a place, or zoom in and tap the map.');
       }
     }
   }
@@ -799,7 +870,7 @@
     state.arrivedOnce = false;
     document.body.dataset.nav = 'on';
     el.navhud.hidden = false;
-    el.btnNavigate.textContent = 'STOP';
+    el.btnNavigate.textContent = 'I\u2019M HERE';
 
     EW.nav.requestCompass().then(function (ok) {
       if (!ok) el.navCompass.textContent = 'no compass';
@@ -831,6 +902,7 @@
     el.arrivedNote.value = entry ? (entry.note || '') : '';
     if (state.current) renderResult(state.current);
     showPanel('arrived');
+    announce(arrived ? 'You have arrived at the point.' : 'Navigation ended.');
   }
 
   function currentEntry() {
@@ -848,7 +920,63 @@
       p.hidden = p.getAttribute('data-panel') !== name;
     });
     document.body.dataset.view = name;
+    el.btnLastPoint.hidden = !(name === 'controls' && !!state.current);
     measureSheet();
+    updateRecentre();
+
+    var now = qs('.panel:not([hidden])', el.sheet);
+    if (now && document.activeElement && now.contains(document.activeElement) === false) {
+      try { now.focus({ preventScroll: true }); } catch (e) {}
+    }
+  }
+
+  function announce(msg) {
+    if (!el.live) return;
+    el.live.textContent = '';
+    setTimeout(function () { el.live.textContent = msg; }, 40);
+  }
+
+  /* a pill that appears when the point has drifted out of the clear area */
+  function updateRecentre() {
+    if (!state.current || state.navMode || document.body.dataset.view !== 'result') {
+      el.btnRecentre.classList.remove('is-up');
+      return;
+    }
+    var pt = map.latLngToContainerPoint([state.current.lat, state.current.lon]);
+    var size = map.getSize();
+    var vis = qs('.panel:not([hidden])', el.sheet);
+    var floor = vis ? vis.getBoundingClientRect().top - 12 : size.y;
+
+    var inside = pt.x > 44 && pt.x < size.x - 44 && pt.y > 84 && pt.y < floor;
+    el.btnRecentre.classList.toggle('is-up', !inside);
+  }
+
+  /* ---- locating without GPS ---------------------------------------- */
+  function syncOriginUI() {
+    var has = !!state.origin;
+    el.placesRow.hidden = !has;
+    el.locateBlock.hidden = has || !state.locateShown;
+    measureSheet();
+  }
+
+  function showLocate(msg) {
+    if (state.origin) return;
+    state.locateShown = true;
+    if (msg) el.locateMsg.textContent = msg;
+    syncOriginUI();
+  }
+
+  function searchPlace(q) {
+    var url = 'https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=' + encodeURIComponent(q);
+    return fetch(url, { headers: { Accept: 'application/json' }, credentials: 'omit' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (list) {
+        if (!list || !list.length) return null;
+        var hit = list[0];
+        var lat = parseFloat(hit.lat), lon = parseFloat(hit.lon);
+        if (!isFinite(lat) || !isFinite(lon)) return null;
+        return { lat: lat, lon: lon, name: String(hit.display_name || '').split(',')[0].trim() };
+      });
   }
 
   function measureSheet() {
@@ -941,7 +1069,26 @@
         openJournalEntry(entry);
       });
 
-      el.journalList.appendChild(row);
+      var wrap = document.createElement('div');
+      wrap.className = 'jrow';
+
+      var del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'jdel';
+      del.setAttribute('aria-label', 'Delete this point');
+      del.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></svg>';
+      del.addEventListener('click', function (e) {
+        e.stopPropagation();
+        EW.journal.remove(entry.id);
+        if (state.current && state.current.journalId === entry.id) state.current.journalId = null;
+        renderJournal();
+        updateBadge();
+        toast('Point deleted');
+      });
+
+      wrap.appendChild(row);
+      wrap.appendChild(del);
+      el.journalList.appendChild(wrap);
     });
   }
 
@@ -992,6 +1139,8 @@
   function showNotice(text) {
     el.noticeText.textContent = text;
     el.notice.hidden = false;
+    clearTimeout(showNotice._t);
+    showNotice._t = setTimeout(function () { el.notice.hidden = true; }, 14000);
   }
 
   /* ---- controls ----------------------------------------------------- */
@@ -1004,6 +1153,7 @@
       var on = b.getAttribute('data-type') === state.type;
       b.classList.toggle('is-on', on);
       b.setAttribute('aria-checked', on ? 'true' : 'false');
+      b.tabIndex = on ? 0 : -1;
     });
   }
 
@@ -1153,6 +1303,85 @@
 
     el.btnJournal.addEventListener('click', function () { openDrawer('drawer'); });
     el.btnInfo.addEventListener('click', function () { openDrawer('about'); });
+
+    /* --- back and forth between settings and the point --- */
+    el.btnBack.addEventListener('click', function () { showPanel('controls'); });
+
+    el.btnLastPoint.addEventListener('click', function () {
+      if (!state.current) return;
+      showPanel('result');
+      fitToPoint();
+    });
+
+    el.btnRecentre.addEventListener('click', function () { fitToPoint(); updateRecentre(); });
+
+    /* --- setting a location without GPS --- */
+    el.locateForm.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var q = el.locateInput.value.trim();
+      if (!q) return;
+      el.locateMsg.textContent = 'Searching\u2026';
+      searchPlace(q).then(function (hit) {
+        if (!hit) {
+          el.locateMsg.textContent = 'Nothing found for that. Try a town or a postcode.';
+          return;
+        }
+        el.locateMsg.textContent = '';
+        el.locateInput.blur();
+        setOrigin(hit.lat, hit.lon, 'search');
+        state.originName = hit.name;
+        updateStatus();
+        announce('Searching around ' + hit.name);
+      }).catch(function () {
+        el.locateMsg.textContent = 'Search unavailable. Zoom in and tap the map instead.';
+      });
+    });
+
+    el.btnUseLocation.addEventListener('click', function () {
+      state.geoDenied = false;
+      el.locateMsg.textContent = 'Asking for your location\u2026';
+      EW.nav.once();
+      setTimeout(function () {
+        if (!state.origin && !state.geoDenied) {
+          el.locateMsg.textContent = 'No fix yet. Search for a place, or tap the map.';
+        }
+      }, 12000);
+    });
+
+    /* --- keyboard --- */
+    el.intention.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); generate(); }
+    });
+
+    el.typeSeg.addEventListener('keydown', function (e) {
+      var keys = ['ArrowRight', 'ArrowDown', 'ArrowLeft', 'ArrowUp', 'Home', 'End'];
+      if (keys.indexOf(e.key) === -1) return;
+      e.preventDefault();
+      var btns = qsa('.seg__btn', el.typeSeg);
+      var i = btns.indexOf(document.activeElement);
+      if (i < 0) i = btns.indexOf(qs('.seg__btn.is-on', el.typeSeg));
+      var next = i;
+      if (e.key === 'ArrowRight' || e.key === 'ArrowDown') next = (i + 1) % btns.length;
+      else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') next = (i - 1 + btns.length) % btns.length;
+      else if (e.key === 'End') next = btns.length - 1;
+      else next = 0;
+      btns[next].focus();
+      setType(btns[next].getAttribute('data-type'));
+    });
+
+    map.on('moveend zoomend', updateRecentre);
+    map.on('zoomend', applyMapStyle);
+
+    window.addEventListener('offline', function () {
+      showNotice('You are offline. The map and known places will not load until you reconnect.');
+    });
+    window.addEventListener('online', function () {
+      el.notice.hidden = true;
+      if (state.origin) schedulePlaces(400);
+    });
+    if (navigator.onLine === false) {
+      showNotice('You are offline. The map and known places will not load until you reconnect.');
+    }
 
     el.btnPlaces.addEventListener('click', function () { openDrawer('places'); });
 

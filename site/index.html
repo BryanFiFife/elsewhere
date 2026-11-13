@@ -67,7 +67,7 @@
   <button type="button" class="notice__x" id="noticeClose" aria-label="Dismiss">&times;</button>
 </div>
 
-<aside class="navhud" id="navhud" hidden aria-live="polite">
+<aside class="navhud" id="navhud" hidden>
   <div class="dial">
     <div class="dial__ring"></div>
     <div class="dial__ticks" aria-hidden="true"></div>
@@ -84,12 +84,32 @@
   </div>
 </aside>
 
+<button class="recentre" id="btnRecentre" type="button" hidden>
+  <span class="recentre__dot" aria-hidden="true"></span>Back to point
+</button>
+
 <main class="sheet" id="sheet">
 
   <!-- ── controls ─────────────────────────────────────────── -->
   <section class="panel" data-panel="controls" aria-label="Generate a point">
     <div class="panel__head">
       <p class="eyebrow">Set an intention, then let the map decide.</p>
+      <button class="linkbtn" id="btnLastPoint" type="button" hidden>Last point</button>
+    </div>
+
+    <div class="locate" id="locateBlock" hidden>
+      <form class="locate__form" id="locateForm" autocomplete="off">
+        <input id="locateInput" type="search" placeholder="Search a town, street or postcode"
+               aria-label="Search for a place">
+        <button class="locate__go" type="submit" aria-label="Search for this place">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="6.4"/><path d="M15.8 15.8 21 21"/></svg>
+        </button>
+      </form>
+      <div class="locate__row">
+        <button class="ghost ghost--sm" id="btnUseLocation" type="button">Use my location</button>
+        <span class="locate__or">or tap the map</span>
+      </div>
+      <p class="locate__msg" id="locateMsg"></p>
     </div>
 
     <label class="field">
@@ -160,6 +180,10 @@
   <!-- ── result ───────────────────────────────────────────── -->
   <section class="panel" data-panel="result" aria-label="Your point" hidden>
     <div class="result__top">
+      <button class="iconbtn iconbtn--sm" id="btnBack" type="button"
+              title="Back to settings" aria-label="Back to settings">
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 5.5 8 12l6.5 6.5"/></svg>
+      </button>
       <span class="chip" id="resType">Attractor</span>
       <span class="res__z" id="resZ">&sigma; --</span>
     </div>
@@ -173,6 +197,7 @@
 
     <p class="result__intent" id="resIntent" hidden></p>
     <p class="result__place" id="resPlace" hidden></p>
+    <p class="result__caveat" id="resCaveat" hidden></p>
 
     <div class="result__coords">
       <span id="resCoords">--</span>
@@ -294,6 +319,7 @@
 </div>
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
+<div class="sr-only" id="live" aria-live="polite" aria-atomic="true"></div>
 
 <noscript>
   <div class="noscript">Elsewhere needs JavaScript. All of its work happens in your browser, so there is nothing to show without it.</div>

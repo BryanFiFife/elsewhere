@@ -11,8 +11,8 @@
   --line:rgba(233,231,224,.12);
   --line-2:rgba(233,231,224,.07);
   --text:#e9e7e0;
-  --muted:#8d8c85;
-  --dim:#5d5d58;
+  --muted:#a3a29a;
+  --dim:#83827b;
   --acid:#d8ff3e;
   --violet:#8f74ff;
   --amber:#ffb03a;
@@ -85,6 +85,10 @@ input,textarea{font:inherit;color:inherit}
    Marker panes sit outside .leaflet-tile-pane, so only tiles are affected. */
 #map.map-night .leaflet-tile-pane{
   filter:invert(1) hue-rotate(180deg) brightness(.84) contrast(.96) saturate(.42);
+}
+/* zoomed right out the map is mostly ocean and reads as black; lift it */
+#map.map-night.zoom-far .leaflet-tile-pane{
+  filter:invert(1) hue-rotate(180deg) brightness(1.02) contrast(1.04) saturate(.55);
 }
 
 .veil{
@@ -160,14 +164,16 @@ input,textarea{font:inherit;color:inherit}
 .hud__actions{display:flex;align-items:center;gap:6px;pointer-events:auto}
 
 .iconbtn{
-  position:relative;width:38px;height:38px;display:grid;place-items:center;
-  border-radius:11px;color:var(--text);
+  position:relative;width:42px;height:42px;display:grid;place-items:center;
+  border-radius:12px;color:var(--text);
   background:rgba(10,12,17,.62);
   border:1px solid var(--line-2);
   backdrop-filter:blur(14px) saturate(1.2);
   transition:background .18s,border-color .18s,transform .18s;
 }
 .iconbtn svg{width:18px;height:18px}
+.iconbtn--sm{width:32px;height:32px;border-radius:9px;background:rgba(255,255,255,.04)}
+.iconbtn--sm svg{width:16px;height:16px}
 .iconbtn:hover{background:rgba(20,23,31,.9);border-color:var(--line)}
 .iconbtn:active{transform:scale(.94)}
 .iconbtn.is-on{border-color:rgba(216,255,62,.45);color:var(--acid)}
@@ -278,19 +284,26 @@ input,textarea{font:inherit;color:inherit}
 
 .panel__head{display:flex;align-items:center;justify-content:space-between;gap:10px}
 .eyebrow{
-  margin:0;font-family:var(--mono);font-size:10.5px;letter-spacing:.11em;
+  margin:0;font-family:var(--mono);font-size:11px;letter-spacing:.11em;
   text-transform:uppercase;color:var(--muted);
 }
+.linkbtn{
+  font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--acid);padding:4px 2px;white-space:nowrap;
+  border-bottom:1px solid rgba(216,255,62,.3);
+  transition:border-color .15s,color .15s;
+}
+.linkbtn:hover{border-bottom-color:var(--acid)}
 
 /* ── fields ───────────────────────────────────────────────── */
 .field{display:grid;gap:6px}
 .field--tight{gap:7px}
 .field__label{
-  font-family:var(--mono);font-size:9.5px;letter-spacing:.16em;
+  font-family:var(--mono);font-size:10px;letter-spacing:.16em;
   text-transform:uppercase;color:var(--dim);
 }
 #intention{
-  width:100%;height:42px;padding:0 13px;
+  width:100%;height:46px;padding:0 13px;
   background:rgba(255,255,255,.035);
   border:1px solid var(--line-2);border-radius:10px;
   font-size:14px;letter-spacing:-.005em;
@@ -354,7 +367,7 @@ input,textarea{font:inherit;color:inherit}
 }
 .range__scale{
   display:flex;justify-content:space-between;
-  font-family:var(--mono);font-size:8.5px;letter-spacing:.06em;
+  font-family:var(--mono);font-size:9.5px;letter-spacing:.05em;
   color:var(--dim);padding:0 64px 0 0;
 }
 
@@ -399,7 +412,7 @@ input,textarea{font:inherit;color:inherit}
 }
 
 /* ── result ───────────────────────────────────────────────── */
-.result__top{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.result__top{display:flex;align-items:center;gap:9px}
 .chip{
   display:inline-flex;align-items:center;gap:6px;
   padding:4px 10px 4px 9px;border-radius:20px;
@@ -408,7 +421,8 @@ input,textarea{font:inherit;color:inherit}
 }
 .chip::before{content:"";width:5px;height:5px;border-radius:50%;background:currentColor;flex:none}
 .res__z{
-  font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;color:var(--muted);
+  margin-left:auto;
+  font-family:var(--mono);font-size:11px;letter-spacing:.08em;color:var(--muted);
   font-variant-numeric:tabular-nums;
 }
 .result__dist{display:flex;align-items:baseline;gap:6px;margin:-2px 0 -4px}
@@ -432,15 +446,22 @@ input,textarea{font:inherit;color:inherit}
   font-variant-numeric:tabular-nums;
 }
 .mini{
-  font-family:var(--mono);font-size:9px;letter-spacing:.12em;text-transform:uppercase;
-  color:var(--dim);padding:3px 7px;border-radius:5px;border:1px solid var(--line-2);
+  font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--dim);padding:6px 9px;border-radius:6px;border:1px solid var(--line-2);
+  min-height:30px;
   transition:color .15s,border-color .15s;
 }
 .mini:hover{color:var(--text);border-color:var(--line)}
 .result__actions{display:grid;grid-template-columns:1fr auto auto;gap:7px;align-items:center}
 .stats{
-  margin:0;font-family:var(--mono);font-size:9.5px;letter-spacing:.04em;
-  color:var(--dim);line-height:1.6;
+  margin:0;font-family:var(--mono);font-size:10px;letter-spacing:.04em;
+  color:var(--dim);line-height:1.65;
+}
+
+/* caveat under a result, e.g. "your journal is empty" */
+.result__caveat{
+  margin:0;font-size:11.5px;line-height:1.5;color:var(--dim);
+  padding-left:9px;border-left:2px solid rgba(255,176,58,.35);
 }
 
 .arrived__h{
@@ -506,7 +527,7 @@ input,textarea{font:inherit;color:inherit}
 }
 .jentry__intent.is-empty{color:var(--dim);font-style:italic}
 .jentry__meta{
-  font-family:var(--mono);font-size:9.5px;letter-spacing:.05em;color:var(--dim);
+  font-family:var(--mono);font-size:10px;letter-spacing:.05em;color:var(--dim);
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
 }
 .jentry__note{
@@ -585,18 +606,95 @@ input,textarea{font:inherit;color:inherit}
 .placefilter input:focus{outline:none;border-color:rgba(53,208,224,.45)}
 
 .result__place{
-  margin:0;display:flex;align-items:baseline;gap:7px;flex-wrap:wrap;
+  margin:0;display:flex;align-items:baseline;gap:7px;min-width:0;
   font-size:12.5px;color:rgba(233,231,224,.78);letter-spacing:-.005em;
 }
-.result__place b{font-weight:600;color:var(--text)}
+.result__place b{
+  font-weight:600;color:var(--text);flex:1;min-width:0;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.result__place > span{
+  flex:none;font-family:var(--mono);font-size:10px;color:var(--dim);
+  font-variant-numeric:tabular-nums;white-space:nowrap;
+}
 .result__place i{
-  font-style:normal;font-family:var(--mono);font-size:9.5px;
-  letter-spacing:.08em;text-transform:uppercase;color:#35d0e0;opacity:.85;
+  flex:none;font-style:normal;font-family:var(--mono);font-size:10px;
+  letter-spacing:.08em;text-transform:uppercase;color:#35d0e0;opacity:.9;white-space:nowrap;
 }
 
 .jentry__dot[data-t="place"]{background:#35d0e0}
 .jentry__dot[data-t="nearby"]{background:#35d0e0}
 .jentry__dot[data-t="landmark"]{background:#ff7a9c}
+
+/* ---- locate block (only shown when there is no origin) ---- */
+.locate{display:grid;gap:8px}
+.locate__form{display:flex;gap:6px}
+.locate__form input{
+  flex:1;min-width:0;height:44px;padding:0 12px;border-radius:10px;
+  background:rgba(255,255,255,.04);border:1px solid var(--line-2);
+  font-size:14px;color:var(--text);
+}
+.locate__form input::placeholder{color:var(--dim)}
+.locate__form input:focus{outline:none;border-color:rgba(216,255,62,.45)}
+.locate__go{
+  width:44px;height:44px;flex:none;display:grid;place-items:center;border-radius:10px;
+  border:1px solid rgba(216,255,62,.35);background:rgba(216,255,62,.09);color:var(--acid);
+  transition:background .16s;
+}
+.locate__go svg{width:18px;height:18px}
+.locate__go:hover{background:rgba(216,255,62,.16)}
+.locate__row{display:flex;align-items:center;gap:10px}
+.locate__or{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim)}
+.locate__msg{margin:0;font-size:11.5px;color:var(--amber);min-height:0}
+.locate__msg:empty{display:none}
+
+.ghost--sm{height:38px;padding:0 13px;font-size:11.5px}
+
+/* ---- back-to-point pill ---- */
+.recentre{
+  position:fixed;z-index:460;left:50%;transform:translate(-50%,6px);
+  bottom:calc(var(--sheet-h) + 14px);
+  display:flex;align-items:center;gap:7px;
+  height:34px;padding:0 13px;border-radius:17px;
+  background:rgba(10,12,17,.94);border:1px solid var(--line);
+  backdrop-filter:blur(14px);
+  font-family:var(--mono);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--text);
+  box-shadow:0 12px 30px -14px rgba(0,0,0,.9);
+  opacity:0;pointer-events:none;
+  transition:opacity .2s,transform .2s var(--ease);
+}
+.recentre.is-up{opacity:1;pointer-events:auto;transform:translate(-50%,0)}
+.recentre__dot{width:6px;height:6px;border-radius:50%;background:var(--acid);box-shadow:0 0 8px rgba(216,255,62,.7)}
+
+/* ---- journal row with a delete affordance ---- */
+.jrow{display:flex;align-items:stretch;gap:2px;border-bottom:1px solid var(--line-2)}
+.jrow .jentry{border-bottom:0;flex:1;min-width:0}
+.jdel{
+  width:38px;flex:none;display:grid;place-items:center;border-radius:8px;
+  color:var(--dim);transition:color .15s,background .15s;
+}
+.jdel svg{width:15px;height:15px}
+.jdel:hover{color:var(--hot);background:rgba(255,77,99,.08)}
+
+.sr-only{
+  position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
+  clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap;border:0;
+}
+
+/* leaflet tooltip for a known place */
+.leaflet-tooltip.poi-tip{
+  background:rgba(10,12,17,.96);
+  border:1px solid var(--line);
+  color:var(--text);
+  font-family:var(--sans);
+  font-size:12px;
+  line-height:1.3;
+  border-radius:8px;
+  padding:5px 9px;
+  box-shadow:0 10px 26px -12px rgba(0,0,0,.95);
+}
+.leaflet-tooltip-top.poi-tip::before{border-top-color:rgba(10,12,17,.96)}
 
 .noscript{
   position:fixed;inset:0;z-index:900;display:grid;place-items:center;padding:32px;
@@ -612,12 +710,17 @@ body[data-nav="on"] .panel{animation:none}
   .result__num{font-size:44px}
   .brand__word{font-size:11px;letter-spacing:.22em}
   .hud{padding-left:14px;padding-right:14px}
-  .iconbtn{width:35px;height:35px;border-radius:10px}
+  .iconbtn{width:40px;height:40px;border-radius:11px}
   .iconbtn svg{width:17px;height:17px}
+  .iconbtn--sm{width:30px;height:30px}
   .panel{padding:14px 13px 13px;border-radius:16px;gap:11px}
   .seg__btn{padding:8px 9px}
   .seg__btn i{font-size:10px}
   .sheet{padding:0 8px calc(env(safe-area-inset-bottom) + 8px)}
+}
+@media (max-width:380px){
+  .brand__word{display:none}
+  .hud{gap:8px}
 }
 @media (max-height:640px){
   .seg__btn i{display:none}
